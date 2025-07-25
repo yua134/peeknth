@@ -1,3 +1,6 @@
+[![Crates.io](https://img.shields.io/crates/v/peeknth.svg)](https://crates.io/crates/peeknth)
+[![Docs.rs](https://docs.rs/peeknth/badge.svg)](https://docs.rs/peeknth)
+
 # peeknth
 
 An iterator adapter for peeking multiple elements ahead in a Rust iterator.
