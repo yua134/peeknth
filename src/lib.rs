@@ -122,15 +122,19 @@ impl<I: Iterator> PeekN<I> {
     ) -> impl Iterator<Item = &<I as Iterator>::Item> {
         let start = match range.start_bound() {
             Bound::Included(&n) => n,
-            Bound::Excluded(&n) => n + 1,
+            Bound::Excluded(&n) => n.saturating_add(1),
             Bound::Unbounded => 0,
         };
 
         let end = match range.end_bound() {
-            Bound::Included(&n) => n + 1,
+            Bound::Included(&n) => n.saturating_add(1),
             Bound::Excluded(&n) => n,
             Bound::Unbounded => self.peeked_len(),
         };
+
+        if start >= end {
+            return self.buffer.range(0..0);
+        }
 
         for i in start..end {
             if self.peek_nth(i).is_none() {
@@ -138,7 +142,8 @@ impl<I: Iterator> PeekN<I> {
             }
         }
 
-        self.buffer.range(start..end)
+        let safe_end = end.min(self.buffer.len());
+        self.buffer.range(start..safe_end)
     }
 
     /// Returns the number of items currently buffered (peeked but not consumed).
@@ -158,6 +163,7 @@ impl<I: Iterator> PeekN<I> {
 
     /// Discards the first `until` buffered items.
     pub fn drain_peeked(&mut self, until: usize) {
+        let until = until.min(self.buffer.len());
         self.buffer.drain(..until);
     }
 }
