@@ -10,7 +10,7 @@ An iterator adapter for peeking multiple elements ahead in a Rust iterator.
 - Iterator-compatible (supports `.map()`, `.filter()`, etc.)
 
 
-🚀 Usage
+## 🚀 Usage
 ```rust
 use peeknth::peekn;
 
@@ -35,7 +35,7 @@ let slice: Vec<_> = iter.peek_range(1..4).cloned().collect();
 assert_eq!(slice, vec![1, 2, 3]);
 ```
 
-📘 Documentation
+## 📘 Documentation
 Run this to view local documentation:
 
 ```bash
@@ -43,18 +43,18 @@ cargo doc --open
 ```
 Or view online at docs.rs/peeknth (once published).
 
-🧪 Testing
+## 🧪 Testing
 ```bash
 cargo test
 ```
 Unit tests and doc tests are included.
 
-📦 Crate info (optional)
+## 📦 Crate info (optional)
 License: MIT OR Apache-2.0
 
 Minimum Rust version: 1.60+
 
 
-🔖 License
+## 🔖 License
 This project is dual-licensed under MIT or Apache-2.0.
 You can choose either license.
