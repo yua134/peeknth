@@ -44,18 +44,10 @@ Run this to view local documentation:
 ```bash
 cargo doc --open
 ```
-Or view online at docs.rs/peeknth (once published).
-
-## 🧪 Testing
-```bash
-cargo test
-```
-Unit tests and doc tests are included.
+Or view online at docs.rs/peeknth.
 
 ## 📦 Crate info (optional)
 License: MIT OR Apache-2.0
-
-Minimum Rust version: 1.60+
 
 
 ## 🔖 License

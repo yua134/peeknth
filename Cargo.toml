@@ -1,9 +1,10 @@
 [package]
 name = "peeknth"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Yua"]
 description = "A simple iterator adapter that lets you peek N elements ahead."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yua134/peeknth"
-keywords = ["iterator", "peek", "lookahead", "buffer", "rust"]
+keywords = ["iterator", "peek", "lookahead", "buffer"]
+categories = ["algorithms", "data-structures"]

@@ -1,6 +1,5 @@
 use std::{
-    collections::VecDeque,
-    ops::{Bound, RangeBounds},
+    collections::VecDeque, iter::FusedIterator, ops::{Bound, RangeBounds}
 };
 
 /// `PeekN` is an iterator adapter that allows peeking at any future element
@@ -35,6 +34,56 @@ impl<I: Iterator> Iterator for PeekN<I> {
         } else {
             self.iter.next()
         }
+    }
+}
+
+impl<I> Clone for PeekN<I>
+where
+    I: Iterator + Clone,
+    I::Item: Clone
+{
+    fn clone(&self) -> Self {
+        PeekN {
+            iter: self.iter.clone(),
+            buffer: self.buffer.clone()
+        }
+    }
+}
+
+impl<I: FusedIterator> std::iter::FusedIterator for PeekN<I> where I: std::iter::FusedIterator {}
+
+impl<I> std::fmt::Debug for PeekN<I>
+where
+    I: Iterator + std::fmt::Debug,
+    I::Item: std::fmt::Debug
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PeekN")
+            .field("iter", &self.iter)
+            .field("buffer", &self.buffer)
+            .finish()
+    }
+}
+
+impl<I> Eq for PeekN<I>
+where
+    I: Iterator + Eq,
+    I::Item: Eq
+{}
+
+impl<I> PartialEq for PeekN<I>
+where
+    I: Iterator + PartialEq,
+    I::Item: PartialEq
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.iter == other.iter && self.buffer == other.buffer
+    }
+}
+
+impl<I: ExactSizeIterator> ExactSizeIterator for PeekN<I> {
+    fn len(&self) -> usize {
+        self.buffer.len() + self.iter.len()
     }
 }
 
@@ -83,6 +132,8 @@ impl<I: Iterator> PeekN<I> {
     /// assert_eq!(iter.peek_nth(3), Some(&13));
     /// ```
     pub fn peek_nth(&mut self, n: usize) -> Option<&I::Item> {
+        debug_assert!(n < usize::MAX, "peek_nth() with usize::MAX is likely a bug");
+
         while self.buffer.len() <= n {
             let next_item = self.iter.next()?;
             self.buffer.push_back(next_item);
@@ -122,16 +173,20 @@ impl<I: Iterator> PeekN<I> {
     ) -> impl Iterator<Item = &<I as Iterator>::Item> {
         let start = match range.start_bound() {
             Bound::Included(&n) => n,
-            Bound::Excluded(&n) => n.saturating_add(1),
+            Bound::Excluded(&n) => n + 1,
             Bound::Unbounded => 0,
         };
 
         let end = match range.end_bound() {
-            Bound::Included(&n) => n.saturating_add(1),
+            Bound::Included(&n) => n + 1,
             Bound::Excluded(&n) => n,
             Bound::Unbounded => self.peeked_len(),
         };
 
+        debug_assert!(
+            start < end,
+            "peek_range: start ({start}) must be less than end ({end})"
+        );
         if start >= end {
             return self.buffer.range(0..0);
         }
@@ -143,6 +198,12 @@ impl<I: Iterator> PeekN<I> {
         }
 
         let safe_end = end.min(self.buffer.len());
+        debug_assert!(
+            end <= self.buffer.len(),
+            "peek_range: end out of bounds: {} > {}",
+            end,
+            self.buffer.len()
+        );
         self.buffer.range(start..safe_end)
     }
 
@@ -164,6 +225,12 @@ impl<I: Iterator> PeekN<I> {
     /// Discards the first `until` buffered items.
     pub fn drain_peeked(&mut self, until: usize) {
         let until = until.min(self.buffer.len());
+        debug_assert!(
+            until <= self.buffer.len(),
+            "drain_peeked: requested to drain until {} but buffer length is {}",
+            until,
+            self.buffer.len()
+        );
         self.buffer.drain(..until);
     }
 }

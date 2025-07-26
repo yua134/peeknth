@@ -68,4 +68,64 @@ mod tests {
         let _ = it.peek_range(..=2); // peek_nth(2) 相当
         assert_eq!(it.peeked_len(), 3);
     }
+
+    #[test]
+    fn test_clone_peekn() {
+    let mut a = peekn(0..10);
+    a.peek_nth(2);
+    let mut b = a.clone();
+
+    assert_eq!(a, b);
+
+    assert_eq!(a.next(), Some(0));
+    assert_eq!(b.next(), Some(0));
+    assert_eq!(a, b); // 進行が同じ
+}
+
+    #[test]
+    fn test_debug_peekn() {
+        let mut iter = peekn(1..4);
+        iter.peek_nth(1);
+
+        let debug_str = format!("{:?}", iter);
+        assert!(debug_str.contains("PeekN"));
+        assert!(debug_str.contains("buffer"));
+        assert!(debug_str.contains("iter"));
+    }
+
+    #[test]
+    fn test_eq_peekn() {
+        let mut a = peekn(0..5);
+        let mut b = peekn(0..5);
+        assert_eq!(a, b);
+
+        a.peek();
+        b.peek();
+        assert_eq!(a, b);
+
+        a.next();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_fused_iterator() {
+        let mut iter = peekn(0..2);
+        assert_eq!(iter.next(), Some(0));
+        assert_eq!(iter.next(), Some(1));
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next(), None); // FusedIteratorなら何度呼んでもNone
+        assert_eq!(iter.peek(), None);
+    }
+
+    #[test]
+    fn test_exact_size_iterator() {
+        let mut iter = peekn(0..5); // 5個ある
+        assert_eq!(iter.len(), 5);
+
+        iter.peek_nth(2); // バッファに3つ入る（0,1,2）
+        assert_eq!(iter.len(), 5); // まだ全体では5個
+
+        iter.next(); // consume 1個（0）
+        assert_eq!(iter.len(), 4);
+    }
 }
