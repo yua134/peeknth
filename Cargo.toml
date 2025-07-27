@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/yua134/peeknth"
 keywords = ["iterator", "peek", "lookahead", "double-ended", "utility"]
 categories = ["algorithms", "data-structures"]
+readme = "README.md"
 
 [features]
 default = ["peekn"]
