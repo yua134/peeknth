@@ -7,7 +7,7 @@ description = "Iterator adapters for peeking multiple elements ahead or behind, 
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yua134/peeknth"
 keywords = ["iterator", "peek", "lookahead", "no_std", "buffer"]
-categories = ["algorithms", "data-structures", "embedded-development", "no-standard-library", "parsing-tools"]
+categories = ["algorithms", "data-structures", "embedded", "no-std", "parsing"]
 readme = "README.md"
 exclude = [
     ".gitignore",

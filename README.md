@@ -29,7 +29,7 @@ An iterator adapter for peeking multiple elements ahead or behind in a Rust iter
 You can control features in `Cargo.toml` like:
 
 ```toml
-peeknth = { version = "0.2", features = ["peekdn"] }
+peeknth = { version = "0.3", features = ["peekdn"] }
 ```
 
 ## 🔒 no_std Compatibility
