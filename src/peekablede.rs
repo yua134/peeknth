@@ -1,4 +1,6 @@
-use std::iter::{FusedIterator, Peekable};
+use core::iter::{FusedIterator, Peekable};
+
+use crate::util::PeekSource;
 
 #[cfg(feature = "peekn")]
 use crate::PeekN;
@@ -67,12 +69,12 @@ where
     }
 }
 
-impl<I> std::fmt::Debug for PeekableDE<I>
+impl<I> core::fmt::Debug for PeekableDE<I>
 where
-    I: DoubleEndedIterator + std::fmt::Debug,
-    I::Item: std::fmt::Debug,
+    I: DoubleEndedIterator + core::fmt::Debug,
+    I::Item: core::fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PeekableDE")
             .field("iter", &self.iter)
             .field("front", &self.front)
@@ -83,7 +85,9 @@ where
 
 impl<I: ExactSizeIterator + DoubleEndedIterator> ExactSizeIterator for PeekableDE<I> {
     fn len(&self) -> usize {
-        self.iter.len() + self.front.is_some() as usize + self.back.is_some() as usize
+        self.iter.len()
+            + matches!(self.front, Some(Some(_))) as usize
+            + matches!(self.back, Some(Some(_))) as usize
     }
 }
 
@@ -113,7 +117,7 @@ where
         let front = peekable.peek().cloned().map(Some);
 
         PeekableDE {
-            iter: peekable.into_iter(),
+            iter: peekable,
             front,
             back: None,
         }
@@ -166,7 +170,7 @@ impl<I: DoubleEndedIterator> From<PeekDN<I>> for PeekableDE<I> {
     }
 }
 
-impl<I: FusedIterator + DoubleEndedIterator> std::iter::FusedIterator for PeekableDE<I> {}
+impl<I: FusedIterator + DoubleEndedIterator> FusedIterator for PeekableDE<I> {}
 
 impl<I: DoubleEndedIterator> PeekableDE<I> {
     /// Creates a new `PeekableDE` from a double-ended iterator.
@@ -182,38 +186,57 @@ impl<I: DoubleEndedIterator> PeekableDE<I> {
     ///
     /// Returns `Some(&item)` if an item is available, or `None` otherwise.
     pub fn peek_front(&mut self) -> Option<&I::Item> {
-        let iter = &mut self.iter;
-        self.front.get_or_insert_with(|| iter.next()).as_ref()
+        if let Some(item) = self.front.get_or_insert_with(|| self.iter.next()).as_ref() {
+            return Some(item);
+        }
+        self.back.as_ref().and_then(|b| b.as_ref())
     }
 
     /// Peeks at the next item from the back without consuming it.
     pub fn peek_back(&mut self) -> Option<&I::Item> {
-        let iter = &mut self.iter;
-        self.back.get_or_insert_with(|| iter.next_back()).as_ref()
+        if let Some(item) = self
+            .back
+            .get_or_insert_with(|| self.iter.next_back())
+            .as_ref()
+        {
+            return Some(item);
+        }
+        self.front.as_ref().and_then(|b| b.as_ref())
     }
 
     /// Peeks at the next item from the front as a mutable reference.
     pub fn peek_front_mut(&mut self) -> Option<&mut I::Item> {
-        let iter = &mut self.iter;
-        self.front.get_or_insert_with(|| iter.next()).as_mut()
+        if let Some(item) = self.front.get_or_insert_with(|| self.iter.next()).as_mut() {
+            return Some(item);
+        }
+        self.back.as_mut().and_then(|b| b.as_mut())
     }
 
     /// Peeks at the next item from the back as a mutable reference.
     pub fn peek_back_mut(&mut self) -> Option<&mut I::Item> {
-        let iter = &mut self.iter;
-        self.back.get_or_insert_with(|| iter.next_back()).as_mut()
+        if let Some(item) = self
+            .back
+            .get_or_insert_with(|| self.iter.next_back())
+            .as_mut()
+        {
+            return Some(item);
+        }
+        self.front.as_mut().and_then(|b| b.as_mut())
     }
 
     /// Consumes and returns the next front item if it satisfies the predicate.
     ///
     /// If the predicate fails, the item is pushed back and preserved.
     pub fn next_if(&mut self, func: impl FnOnce(&I::Item) -> bool) -> Option<I::Item> {
-        match self.next() {
-            Some(matched) if func(&matched) => Some(matched),
-            other => {
-                self.front = Some(other);
+        if let Some(matched) = self.next_with_source() {
+            if func(matched.as_ref()) {
+                Some(matched.into_item())
+            } else {
+                self.cache_front(matched);
                 None
             }
+        } else {
+            None
         }
     }
 
@@ -221,12 +244,15 @@ impl<I: DoubleEndedIterator> PeekableDE<I> {
     ///
     /// If the predicate fails, the item is pushed back and preserved.
     pub fn next_back_if(&mut self, func: impl FnOnce(&I::Item) -> bool) -> Option<I::Item> {
-        match self.next_back() {
-            Some(matched) if func(&matched) => Some(matched),
-            other => {
-                self.back = Some(other);
+        if let Some(matched) = self.next_back_with_source() {
+            if func(matched.as_ref()) {
+                Some(matched.into_item())
+            } else {
+                self.cache_back(matched);
                 None
             }
+        } else {
+            None
         }
     }
 
@@ -285,6 +311,78 @@ impl<I: DoubleEndedIterator> PeekableDE<I> {
     pub fn clear_peeked(&mut self) {
         self.clear_front_peeked();
         self.clear_back_peeked();
+    }
+
+    pub fn while_next_front(
+        &mut self,
+        mut func: impl FnMut(&I::Item) -> bool,
+    ) -> impl Iterator<Item = I::Item> {
+        core::iter::from_fn(move || {
+            if let Some(peeked) = self.next_with_source() {
+                if func(peeked.as_ref()) {
+                    Some(peeked.into_item())
+                } else {
+                    self.cache_front(peeked);
+                    None
+                }
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn while_next_back(
+        &mut self,
+        mut func: impl FnMut(&I::Item) -> bool,
+    ) -> impl Iterator<Item = I::Item> {
+        core::iter::from_fn(move || {
+            if let Some(peeked) = self.next_back_with_source() {
+                if func(peeked.as_ref()) {
+                    Some(peeked.into_item())
+                } else {
+                    self.cache_back(peeked);
+                    None
+                }
+            } else {
+                None
+            }
+        })
+    }
+
+    fn next_with_source(&mut self) -> Option<PeekSource<I::Item>> {
+        if let Some(front) = self.front.take().flatten() {
+            Some(PeekSource::Front(front))
+        } else if let Some(iter) = self.iter.next() {
+            Some(PeekSource::Iter(iter))
+        } else {
+            self.back.take().flatten().map(PeekSource::Back)
+        }
+    }
+
+    fn cache_front(&mut self, item: PeekSource<I::Item>) {
+        match item {
+            PeekSource::Front(front) => self.front = Some(Some(front)),
+            PeekSource::Iter(iter) => self.front = Some(Some(iter)),
+            PeekSource::Back(back) => self.back = Some(Some(back)),
+        }
+    }
+
+    fn next_back_with_source(&mut self) -> Option<PeekSource<I::Item>> {
+        if let Some(back) = self.back.take().flatten() {
+            Some(PeekSource::Back(back))
+        } else if let Some(iter) = self.iter.next_back() {
+            Some(PeekSource::Iter(iter))
+        } else {
+            self.front.take().flatten().map(PeekSource::Front)
+        }
+    }
+
+    fn cache_back(&mut self, item: PeekSource<I::Item>) {
+        match item {
+            PeekSource::Front(front) => self.front = Some(Some(front)),
+            PeekSource::Iter(iter) => self.back = Some(Some(iter)),
+            PeekSource::Back(back) => self.back = Some(Some(back)),
+        }
     }
 }
 

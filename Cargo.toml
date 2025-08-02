@@ -1,21 +1,30 @@
 [package]
 name = "peeknth"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["Yua"]
-description = "A simple iterator adapter that lets you peek N elements ahead."
+description = "Iterator adapters for peeking multiple elements ahead or behind, with optional fixed-size buffers."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yua134/peeknth"
-keywords = ["iterator", "peek", "lookahead", "double-ended", "utility"]
-categories = ["algorithms", "data-structures"]
+keywords = ["iterator", "peek", "lookahead", "no_std", "buffer"]
+categories = ["algorithms", "data-structures", "embedded-development", "no-standard-library", "parsing-tools"]
 readme = "README.md"
+exclude = [
+    ".gitignore",
+    ".github/*",
+    "target/*",
+    ".vscode/*",
+    "tests/*",
+    "experimental/*"
+]
 
 [features]
-default = ["peekn"]
+default = ["peekn", "alloc"]
 peekn = []
 peekdn = []
 peekde = []
-all = ["peekn", "peekdn", "peekde"]
+alloc = []
+all = ["peekn", "peekdn", "peekde", "alloc"]
 
 [package.metadata.docs.rs]
 features = ["all"]

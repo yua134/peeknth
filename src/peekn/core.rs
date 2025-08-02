@@ -1,12 +1,14 @@
-#[cfg(feature = "peekdn")]
-use crate::PeekDN;
 #[cfg(feature = "peekde")]
 use crate::PeekableDE;
-use std::{
-    collections::VecDeque,
-    iter::Peekable,
-    ops::{Bound, RangeBounds},
+use crate::SizedPeekN;
+use core::{
+    iter::{FusedIterator, Iterator, Peekable},
+    ops::RangeBounds,
 };
+
+extern crate alloc;
+
+use alloc::collections::VecDeque;
 
 /// `PeekN` is an iterator adapter that allows peeking at any future element
 /// in the iterator, not just the next one.
@@ -58,12 +60,15 @@ where
     }
 }
 
-#[cfg(feature = "peekdn")]
-impl<I: DoubleEndedIterator> From<PeekDN<I>> for PeekN<I> {
-    fn from(peekdn: PeekDN<I>) -> Self {
+impl<I, const S: usize> From<SizedPeekN<I, S>> for PeekN<I>
+where
+    I: Iterator,
+    I::Item: Copy,
+{
+    fn from(value: SizedPeekN<I, S>) -> Self {
         PeekN {
-            iter: peekdn.iter,
-            buffer: peekdn.front,
+            iter: value.iter,
+            buffer: VecDeque::from(value.buffer),
         }
     }
 }
@@ -92,14 +97,14 @@ where
     }
 }
 
-impl<I: std::iter::FusedIterator> std::iter::FusedIterator for PeekN<I> {}
+impl<I: FusedIterator> FusedIterator for PeekN<I> {}
 
-impl<I> std::fmt::Debug for PeekN<I>
+impl<I> core::fmt::Debug for PeekN<I>
 where
-    I: Iterator + std::fmt::Debug,
-    I::Item: std::fmt::Debug,
+    I: Iterator + core::fmt::Debug,
+    I::Item: core::fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("PeekN")
             .field("iter", &self.iter)
             .field("buffer", &self.buffer)
@@ -178,7 +183,11 @@ impl<I: Iterator> PeekN<I> {
     /// assert_eq!(iter.peek_nth(3), Some(&13));
     /// ```
     pub fn peek_nth(&mut self, n: usize) -> Option<&I::Item> {
-        debug_assert!(n < usize::MAX, "peek_nth() with usize::MAX is likely a bug");
+        core::debug_assert!(n < usize::MAX, "peek_nth() with usize::MAX is likely a bug");
+
+        if self.buffer.len() > n {
+            return self.buffer.get(n);
+        }
 
         while self.buffer.len() <= n {
             let next_item = self.iter.next()?;
@@ -210,10 +219,14 @@ impl<I: Iterator> PeekN<I> {
     /// assert_eq!(iter.next(), Some(11));
     /// ```
     pub fn peek_nth_mut(&mut self, n: usize) -> Option<&mut I::Item> {
-        debug_assert!(
+        core::debug_assert!(
             n < usize::MAX,
             "peek_nth_mut() with usize::MAX is likely a bug"
         );
+
+        if self.buffer.len() > n {
+            return self.buffer.get_mut(n);
+        }
 
         while self.buffer.len() <= n {
             let next_item = self.iter.next()?;
@@ -256,34 +269,38 @@ impl<I: Iterator> PeekN<I> {
         self.peek_nth_mut(0)
     }
 
-    /// Peeks at a range of elements from the iterator and returns them as references.
+    /// Peeks a range of elements from the internal buffer without consuming them.
     ///
-    /// The internal buffer is filled up to the highest required index if needed.
+    /// This method attempts to fill the internal buffer up to the specified range by repeatedly
+    /// calling `peek_nth(i)` for each index in the range. If any of the required elements
+    /// cannot be fetched (i.e., the iterator is exhausted), the returned slice will be truncated
+    /// accordingly.
+    ///
+    /// # Arguments
+    /// * `range` - The range of indices to access within the buffer. Must satisfy `start < end`.
+    ///
+    /// # Returns
+    /// A slice of peeked items in the specified range. If the iterator runs out of items,
+    /// the returned slice will be shorter than requested.
     ///
     /// # Examples
     /// ```
     /// # use peeknth::{peekn, PeekN};
-    /// let mut iter = peekn(0..);
+    /// let mut iter = peekn(0..5);
     /// let values: Vec<_> = iter.peek_range(1..4).cloned().collect();
     /// assert_eq!(values, vec![1, 2, 3]);
     /// ```
     pub fn peek_range<R: RangeBounds<usize>>(
         &mut self,
         range: R,
-    ) -> impl Iterator<Item = &<I as Iterator>::Item> {
-        let start = match range.start_bound() {
-            Bound::Included(&n) => n,
-            Bound::Excluded(&n) => n + 1,
-            Bound::Unbounded => 0,
-        };
+    ) -> impl Iterator<Item = &<I as Iterator>::Item>
+    where
+        I: ExactSizeIterator,
+    {
+        use crate::get_start_end;
+        let (start, end) = get_start_end(range, self.len());
 
-        let end = match range.end_bound() {
-            Bound::Included(&n) => n + 1,
-            Bound::Excluded(&n) => n,
-            Bound::Unbounded => self.peeked_len(),
-        };
-
-        debug_assert!(
+        core::debug_assert!(
             start < end,
             "peek_range: start ({start}) must be less than end ({end})"
         );
@@ -298,13 +315,60 @@ impl<I: Iterator> PeekN<I> {
         }
 
         let safe_end = end.min(self.buffer.len());
-        debug_assert!(
+        core::debug_assert!(
             end <= self.buffer.len(),
             "peek_range: end out of bounds: {} > {}",
             end,
             self.buffer.len()
         );
         self.buffer.range(start..safe_end)
+    }
+
+    /// Mutably peeks a range of elements from the internal buffer without consuming them.
+    ///
+    /// This method attempts to fill the internal buffer up to the specified range by repeatedly
+    /// calling `peek_nth(i)` for each index in the range. If any of the required elements
+    /// cannot be fetched (i.e., the iterator is exhausted), the returned slice will be truncated
+    /// accordingly.
+    ///
+    /// # Arguments
+    /// * `range` - The range of indices to access within the buffer. Must satisfy `start < end`.
+    ///
+    /// # Returns
+    /// A mutable iterator over the available elements in the specified range,
+    /// potentially shorter than requested if the iterator runs out of items.
+    pub fn peek_range_mut<R: RangeBounds<usize>>(
+        &mut self,
+        range: R,
+    ) -> impl Iterator<Item = &mut <I as Iterator>::Item>
+    where
+        I: ExactSizeIterator,
+    {
+        use crate::get_start_end;
+        let (start, end) = get_start_end(range, self.len());
+
+        core::debug_assert!(
+            start < end,
+            "peek_range: start ({start}) must be less than end ({end})"
+        );
+        if start >= end {
+            return self.buffer.range_mut(0..0);
+        }
+
+        for i in start..end {
+            if self.peek_nth(i).is_none() {
+                break;
+            }
+        }
+
+        let safe_end = end.min(self.buffer.len());
+        core::debug_assert!(
+            end <= self.buffer.len(),
+            "peek_range: end out of bounds: {} > {}",
+            end,
+            self.buffer.len()
+        );
+        self.buffer.range_mut(start..safe_end)
     }
 
     /// Advances the iterator and returns the next value only if it satisfies the predicate.
@@ -350,6 +414,9 @@ impl<I: Iterator> PeekN<I> {
         self.next_if(|next| next == expected)
     }
 
+    /// Converts this `PeekN` into a standard `Peekable`, discarding buffered items.
+    ///
+    /// This is a lossy conversion: any elements stored in the internal buffer will be dropped.
     pub fn into_peekable_lossy(self) -> Peekable<I> {
         self.iter.peekable()
     }
@@ -376,13 +443,66 @@ impl<I: Iterator> PeekN<I> {
     #[inline]
     pub fn drain_peeked(&mut self, until: usize) {
         let until = until.min(self.buffer.len());
-        debug_assert!(
+        core::debug_assert!(
             until <= self.buffer.len(),
             "drain_peeked: requested to drain until {} but buffer length is {}",
             until,
             self.buffer.len()
         );
         self.buffer.drain(..until);
+    }
+
+    /// Consumes and yields items while the predicate returns `true`.
+    ///
+    /// This method consumes items from the iterator one by one and yields them
+    /// as long as the predicate returns `true`. If the predicate fails,
+    /// the item is pushed back into the front of the internal buffer for future use.
+    ///
+    /// # Arguments
+    /// * `func` - A predicate function that returns `true` to continue consuming.
+    ///
+    /// # Returns
+    /// An iterator over the consumed items that matched the predicate.
+    pub fn while_next(
+        &mut self,
+        mut func: impl FnMut(&I::Item) -> bool,
+    ) -> impl Iterator<Item = I::Item> {
+        core::iter::from_fn(move || {
+            if let Some(peeked) = self.next() {
+                if func(&peeked) {
+                    Some(peeked)
+                } else {
+                    self.buffer.push_front(peeked);
+                    None
+                }
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Counts how many items satisfy the predicate without consuming them.
+    ///
+    /// This method peeks at the `n`-th item in the buffer using `peek_nth(count)`,
+    /// starting from `n = 0`, and continues while the predicate returns `true`.
+    /// The iteration stops at the first item that fails the predicate.
+    ///
+    /// # Arguments
+    /// * `func` - A predicate to test each peeked item.
+    ///
+    /// # Returns
+    /// The number of consecutive peeked elements that satisfy the predicate.
+    pub fn while_peek(&mut self, mut func: impl FnMut(&I::Item) -> bool) -> usize {
+        let mut count = 0;
+        while let Some(item) = self.peek_nth(count) {
+            if func(item) {
+                count += 1;
+            } else {
+                break;
+            }
+        }
+
+        count
     }
 }
 
@@ -402,7 +522,7 @@ impl<I: Iterator> PeekN<I> {
 /// ```
 impl<I: Iterator> PeekN<Peekable<I>> {
     pub fn from_peekable_lossy(peekable: Peekable<I>) -> Self {
-        PeekN::new(peekable.into_iter())
+        PeekN::new(peekable)
     }
 }
 
